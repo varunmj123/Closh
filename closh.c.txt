@@ -1,0 +1,116 @@
+// COSC 315 - Group4
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <time.h>
+
+#define TRUE 1
+#define FALSE 0
+
+// tokenize the command string into arguments - do not modify
+void readCmdTokens(char* cmd, char** cmdTokens) {
+    cmd[strlen(cmd) - 1] = '\0'; // drop trailing newline
+    int i = 0;
+    cmdTokens[i] = strtok(cmd, " "); // tokenize on spaces
+    while (cmdTokens[i++] && i < sizeof(cmdTokens)) {
+        cmdTokens[i] = strtok(NULL, " ");
+    }
+}
+
+// read one character of input, then discard up to the newline - do not modify
+char readChar() {
+    char c = getchar();
+    while (getchar() != '\n');
+    return c;
+}
+
+void s_execution(int count, char* cmdTokens[], int timeout) {    //for sequential execution
+    pid_t pid;
+    pid_t wait;     //for implementation of timeout   
+    for(int i=1; i<=count; i++) {   //loop running for 'count' times
+        pid = fork();   //forking
+        switch(pid) {   //process ID determines the process
+            case 0: printf ("%d) PID: %d\n", i, getpid());      //child process
+                    sleep(1);
+                    if(execvp(cmdTokens[0], cmdTokens) < 0)     //replaces current process with given 
+                        printf("Execution failed %s", cmdTokens[0]);    //if for handling error in execution
+                    break;
+            default:                
+                if (pid < 0)        //pid < 0 --> creation failed (reached upon failure)
+                    printf("Process creation failed\n");
+                else {                  //parent process --- waits for completion
+                    int time = 0;
+                    do {
+                        wait = waitpid(pid, NULL, WNOHANG);
+                        if(wait == 0) {
+                            if(time < timeout) {     //sleep for 1 sec and increment   
+                                sleep(1);            //time variable by 1
+                                time++;
+                            }
+                            else kill(pid, SIGKILL);    //if time up, kill the child
+                        }
+                    } while (wait == 0 && time <= timeout); //loop until done (process or timeout)
+                }
+                break;
+        }
+    }   
+}
+
+void p_execution(int count, char* cmdTokens[], int timeout) {    //for parallel execution
+    pid_t pid[9];
+    int counter = 1;        //counter for while
+    while (counter <= count) {  //while loop running 'count' times
+        pid[counter] = fork();  //forking
+        switch(pid[counter]) {   //process ID determines the process   
+            case 0: printf ("Thread %d) PID: %d\n", counter, getpid());     //child process
+                    counter++;  //counter incrementation
+                    if(execvp(cmdTokens[0], cmdTokens) < 0)     //replaces current process with given
+                        printf("Execution failed %s", cmdTokens[0]);    //if for handling error in execution
+                    break;
+            default:
+                if (pid[counter] < 0)   //pid < 0 --> creation failed (reached upon failure)
+                    printf("Process creation failed\n");
+                else counter++;     //parent process
+                break;
+        }
+    }
+    for(int i=0; i<count; i++)      //for loop for processes running in parallel
+        waitpid(pid[i], 0, 0);      //waiting for all processes to terminate
+}
+
+// main method - program entry point
+int main() {
+    char cmd[81]; // array of chars (a string)
+    char* cmdTokens[20]; // array of strings
+    int count; // number of times to execute command
+    int parallel; // whether to run in parallel or sequentially
+    int timeout; // max seconds to run set of commands (parallel) or each command (sequentially)
+    
+    while (TRUE) { // main shell input loop
+        
+        // begin parsing code - do not modify
+        printf("closh> ");
+        fgets(cmd, sizeof(cmd), stdin);
+        if (cmd[0] == '\n') continue;
+        readCmdTokens(cmd, cmdTokens);
+        do {
+            printf("  count> ");
+            count = readChar() - '0';
+        } while (count <= 0 || count > 9);
+        
+        printf("  [p]arallel or [s]equential> ");
+        parallel = (readChar() == 'p') ? TRUE : FALSE;
+        do {
+            printf("  timeout> ");
+            timeout = readChar() - '0';
+        } while (timeout < 0 || timeout > 9);
+        // end parsing code
+
+        //selects the function to execute based on the truth value of parallel
+        parallel ? p_execution(count, cmdTokens, timeout) : s_execution(count, cmdTokens, timeout);       
+    }
+}
